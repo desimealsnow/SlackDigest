@@ -57,12 +57,28 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     return;
   }
 
-  
-  const openai = new OpenAI({ apiKey: openaiKey });
-  const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const provider   = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
+  const chat = new OpenAI(
+    provider === "groq"
+      ? {
+          apiKey: process.env.GROQ_API_KEY!,                   // GROQ_API_KEY in Vercel
+          baseURL: "https://api.groq.com/openai/v1"            // Groq’s OpenAI-compatible endpoint
+        }
+      : {
+          apiKey: process.env.OPENAI_API_KEY!,                 // OPENAI_API_KEY in Vercel
+          /* baseURL defaults to api.openai.com */
+        }
+  );
+  const model =
+    provider === "groq"
+      ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"            // cheap dev model
+      : process.env.OPENAI_MODEL ?? "gpt-4o-mini";             // prod default  
+
+  const { choices } = await chat.chat.completions.create({
+    model,
     messages: [
-      { role: "user",
+      {
+        role: "user",
         content:
           "Summarise the Slack discussion below in ≤120 words, then list **Action Items** as bullets.\n\n" +
           text
@@ -70,7 +86,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     ],
     max_tokens: 400,
     temperature: 0.3
-  });
+  });  
   const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
   const threadTs =
   // if the command was used *inside* an existing thread
