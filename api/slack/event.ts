@@ -34,25 +34,50 @@ const app = new App({
   receiver,
   logLevel: LogLevel.DEBUG       // extra Bolt diagnostics
 });
-/* ---------- provider + key + model selector ---------- */
-const provider  = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
 
-/** one OpenAI client works for both OpenAI & Groq */
-const chat = new OpenAI(
-  provider === "groq"
-    ? {
-        apiKey: process.env.GROQ_API_KEY!,
-        baseURL: "https://api.groq.com/openai/v1"
-      }
-    : {
-        apiKey: process.env.OPENAI_API_KEY!
-      }
-);
+async function generateSummary(sourceText: string): Promise<string> {
+  /* pick provider + key + model from env ----------------------- */
+  const provider = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
 
-const model =
-  provider === "groq"
-    ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"
-    : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const chat = new OpenAI(
+    provider === "groq"
+      ? {
+          apiKey: process.env.GROQ_API_KEY!,
+          baseURL: "https://api.groq.com/openai/v1"  // Groq’s compat endpoint
+        }
+      : {
+          apiKey: process.env.OPENAI_API_KEY!
+        }
+  );
+
+  const model =
+    provider === "groq"
+      ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"
+      : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
+  console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
+  console.time("[LLM] latency");
+
+  const { choices } = await chat.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: "user",
+        content:
+          "Summarise the Slack discussion below in ≤120 words, " +
+          "then list **Action Items** as bullets.\n\n" +
+          sourceText
+      }
+    ],
+    max_tokens: 400,
+    temperature: 0.3
+  });
+
+  console.timeEnd("[LLM] latency");
+  return choices.at(0)?.message?.content?.trim() ?? "(empty)";
+}
+
+
 
 /* ── /summarize command -------------------------------------- */
 app.command("/summarize", async ({ ack, respond, body, client }) => {
@@ -81,39 +106,20 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
       return;
     }
 
-    /* ─ LLM call (OpenAI or Groq) ─────────────────── */
-    console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
-    console.time("[LLM] latency");
+    /* 3️⃣  call the LLM */
+    const summary = await generateSummary(text);
 
-    const { choices } = await chat.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "user",
-          content:
-            "Summarise the Slack discussion below in ≤120 words, then list **Action Items** as bullets.\n\n" +
-            text
-        }
-      ],
-      max_tokens: 400,
-      temperature: 0.3
-    });
 
-    console.timeEnd("[LLM] latency");
 
-    const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+  await respond({
+    replace_original: true,           // overwrite “Summarising…”
+    response_type: "in_channel",      // or "ephemeral" if you want it private
+    text: summary,
+    ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
+      thread_ts: body.thread_ts       // keep it inside the thread if user was there
+    })
+  });
 
-    /* ─ Post the summary back ─────────────────────── */
-    const threadTs =
-      body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts)
-        ? body.thread_ts
-        : undefined;
-
-    await client.chat.postMessage({
-      channel: body.channel_id,
-      text: summary,
-      ...(threadTs && { thread_ts: threadTs })
-    });
 
   } catch (err: any) {
     console.error("[ERR] summariser failed", err);
