@@ -2,6 +2,7 @@ import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
 import { OpenAI } from "openai";
 import pRetry from "p-retry";
 import { WebClient } from "@slack/web-api";
+import { performance } from "perf_hooks";
 
 /* ----------  ENV ---------- */
 const signingSecret = process.env.SLACK_SIGNING_SECRET!;
@@ -135,8 +136,10 @@ return summary;
 
 /* ── /summarize command -------------------------------------- */
 app.command("/summarize", async ({ ack, respond, body, client }) => {
+  const t0 = performance.now();
   // 1️⃣ quick ack so Slack doesn’t timeout
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
+  console.log("[FLOW] ack sent in", (performance.now() - t0).toFixed(1), "ms");
 
   
   /* 2️⃣  Kick off the heavy work **without awaiting it** */
@@ -144,11 +147,14 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
     try {
       /* fetch recent messages ------------------------------------ */
       const oldest = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
+      console.time("[Slack] history");
       const hist   = await client.conversations.history({
         channel: body.channel_id,
         limit:   100,
         oldest:  oldest.toString()
       });
+      console.timeEnd("[Slack] history");
+      if (!hist.ok) throw new Error(`history_error:${hist.error}`);
       const text = (hist.messages ?? [])
         .filter(m => !(m as any).subtype)
         .map(m => m.text ?? "")
@@ -164,8 +170,21 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
         return;
       }
 
-      /* call LLM (OpenAI / Groq) --------------------------------- */
-      const summary = await generateSummary(text);
+ /* 2-B call LLM ------------------------------------------- */
+      console.log(
+        `[LLM] provider=${(process.env.MODEL_PROVIDER ?? "openai").toLowerCase()}` +
+        ` model=${process.env.OPENAI_MODEL ?? process.env.GROQ_MODEL ?? "default"}`
+      );
+      console.time("[LLM] latency");
+
+      const summary = await Promise.race([
+        generateSummary(text),
+        new Promise<string>((_, rej) =>
+          setTimeout(() => rej(new Error("openai_timeout")), 30_000)
+        )
+      ]);
+
+      console.timeEnd("[LLM] latency");
 
       /* replace the temp message --------------------------------- */
       await respond({
@@ -176,6 +195,11 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
           thread_ts: body.thread_ts
         })
       });
+      console.log(
+        "[FLOW] respond() sent — total",
+        (performance.now() - t0).toFixed(1),
+        "ms"
+      );
     } catch (err: any) {
       console.error("[ERR] summariser failed:", err);
       await respond({
