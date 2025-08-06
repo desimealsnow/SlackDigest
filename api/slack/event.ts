@@ -108,6 +108,7 @@ async function generateSummary(sourceText: string): Promise<string> {
     max_tokens: 400,
     temperature: 0.3
   });
+  
 
   console.timeEnd("[LLM] latency");
   return choices.at(0)?.message?.content?.trim() ?? "(empty)";
