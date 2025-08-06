@@ -34,6 +34,25 @@ const app = new App({
   receiver,
   logLevel: LogLevel.DEBUG       // extra Bolt diagnostics
 });
+/* ---------- provider + key + model selector ---------- */
+const provider  = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
+
+/** one OpenAI client works for both OpenAI & Groq */
+const chat = new OpenAI(
+  provider === "groq"
+    ? {
+        apiKey: process.env.GROQ_API_KEY!,
+        baseURL: "https://api.groq.com/openai/v1"
+      }
+    : {
+        apiKey: process.env.OPENAI_API_KEY!
+      }
+);
+
+const model =
+  provider === "groq"
+    ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"
+    : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 /* ── /summarize command -------------------------------------- */
 app.command("/summarize", async ({ ack, respond, body, client }) => {
@@ -69,10 +88,12 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
     const { choices } = await chat.chat.completions.create({
       model,
       messages: [
-        { role: "user",
+        {
+          role: "user",
           content:
             "Summarise the Slack discussion below in ≤120 words, then list **Action Items** as bullets.\n\n" +
-            text }
+            text
+        }
       ],
       max_tokens: 400,
       temperature: 0.3
