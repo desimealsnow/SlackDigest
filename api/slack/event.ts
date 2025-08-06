@@ -1,195 +1,155 @@
-import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
+/*  slack-summariser.ts  */
+import { App, ExpressReceiver, LogLevel, RespondArguments } from "@slack/bolt";
+import { WebClient } from "@slack/web-api";
 import { OpenAI } from "openai";
 import pRetry from "p-retry";
-import { WebClient } from "@slack/web-api";
-import { performance } from "perf_hooks";
 
-/* ----------  ENV ---------- */
+/* ─────────────────────────  ENV  ────────────────────────── */
 const signingSecret = process.env.SLACK_SIGNING_SECRET!;
 const botToken      = process.env.SLACK_BOT_TOKEN!;
-const openaiKey     = process.env.OPENAI_API_KEY!;
 
+/* Tunables (override in env without redeploy) */
+const HISTORY_WINDOW_SEC = Number(process.env.SLACK_HISTORY_WINDOW_SEC ?? 60 * 60 * 24); // 24 h
+const HISTORY_LIMIT      = Number(process.env.SLACK_HISTORY_LIMIT ?? 100);              // msgs
+const LLM_TIMEOUT_MS     = Number(process.env.LLM_TIMEOUT_MS ?? 30_000);               // 30 s
 
-/* ----------  RECEIVER ---------- */
+/* ──────────────────────  RECEIVER  ──────────────────────── */
 const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET!,
-  // POST /api/slack/event  →  slash-command dispatcher
+  signingSecret,
   endpoints: { commands: "/api/slack/event" },
   processBeforeResponse: false
 });
 
-/* ── DEBUG #1: log ANY request that reaches Express ---------- */
+/* Log every inbound request (helps during first deploys) */
 receiver.app.use((req, _res, next) => {
   console.log(`[DEBUG] Incoming ${req.method} ${req.originalUrl}`);
   next();
 });
 
-/* Health-check for GET /api/slack/event */
+/* Health-check */
 receiver.app.get("/api/slack/event", (_req, res) => {
-  console.log("[DEBUG] Health-check hit");
   res.status(200).json({ ok: true, ts: Date.now() });
 });
 
-/* ----------  BOLT APP ---------- */
+/* ───────────────────────  BOLT APP  ─────────────────────── */
 const app = new App({
   token: botToken,
   receiver,
-  logLevel: LogLevel.DEBUG       // extra Bolt diagnostics
+  logLevel: LogLevel.DEBUG
 });
 
-async function getRecentMessages(
+/* ─────────── Helper: fetch recent Slack messages ────────── */
+async function fetchMessages(
   client: WebClient,
   channel: string,
-  windowSeconds = 60 * 60 * 24       // 24 h
+  threadTs?: string
 ) {
-  const oldest = Math.floor(Date.now() / 1000) - windowSeconds;
+  const oldest = Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SEC;
 
   return pRetry(
     async () => {
       console.time("[Slack] history RTT");
-      const res = await client.conversations.history({
-        channel,
-        limit: 100,
-        oldest: oldest.toString()
-      });
+      const res = threadTs
+        ? await client.conversations.replies({ channel, ts: threadTs, limit: HISTORY_LIMIT })
+        : await client.conversations.history({ channel, oldest: oldest.toString(), limit: HISTORY_LIMIT });
       console.timeEnd("[Slack] history RTT");
 
-      if (!res.ok) {
-        throw new Error(`history_error:${res.error}`);
-      }
-      return res.messages ?? [];
+      if (!res.ok) throw new Error(`history_error:${(res as any).error}`);
+      return (res.messages ?? []).filter(m => !(m as any).subtype);
     },
     {
-      retries: 1,                    // total = 2 tries
+      retries: 1,
       minTimeout: 250,
-      onFailedAttempt: (err) =>
-        console.warn(
-          `[Slack] history attempt ${err.attemptNumber} failed: ${err.message}`
-        )
+      onFailedAttempt: err =>
+        console.warn(`[Slack] history attempt ${err.attemptNumber} failed: ${err.message}`)
     }
   );
 }
 
+/* ───────────── Helper: generate LLM summary ─────────────── */
+type SlackResponder = (msg: RespondArguments) => Promise<void>;
 
-async function generateSummary(sourceText: string): Promise<string> {
-  /* pick provider + key + model from env ----------------------- */
+async function generateSummary(
+  sourceText: string,
+  respond: SlackResponder
+): Promise<string | undefined> {
   const provider = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
-
-  const chat = new OpenAI(
-    provider === "groq"
-      ? {
-          apiKey: process.env.GROQ_API_KEY!,
-          baseURL: "https://api.groq.com/openai/v1"  // Groq’s compat endpoint
-        }
-      : {
-          apiKey: process.env.OPENAI_API_KEY!
-        }
-  );
-
   const model =
     provider === "groq"
       ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"
       : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
-  console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
-
-/* ──────────────────────────────────────────────────────────────── */
-/* helper to time-limit any promise                                 */
-/* ──────────────────────────────────────────────────────────────── */
-function withTimeout<T>(p: Promise<T>, ms = 30_000) {
-  return Promise.race<T>([
-    p,
-    new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error("openai_timeout")), ms)
-    )
-  ]);
-}
-console.log('Here')
-  console.time("[LLM] latency");
-let summary: string;
-
-/* ──────────────────────────────────────────────────────────────── */
-/* LLM call with timeout + safe return                              */
-/* ──────────────────────────────────────────────────────────────── */
-try {
-  const resp = await withTimeout(
-    chat.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "user",
-          content:
-            "Summarise the Slack discussion below in ≤120 words, " +
-            "then list **Action Items** as bullets.\n\n" +
-            sourceText
-        }
-      ],
-      max_tokens: 400,
-      temperature: 0.3
-    })
+  const chat = new OpenAI(
+    provider === "groq"
+      ? { apiKey: process.env.GROQ_API_KEY!, baseURL: "https://api.groq.com/openai/v1" }
+      : { apiKey: process.env.OPENAI_API_KEY! }
   );
 
-  console.timeEnd("[LLM] latency");
-  summary = resp.choices[0].message?.content?.trim() ?? "(empty)";
-  return summary;
-} catch (err: any) {
-  console.timeEnd("[LLM] latency");
-  console.error("[ERR] OpenAI call failed:", err);
+  function withTimeout<T>(p: Promise<T>, ms = LLM_TIMEOUT_MS) {
+    return Promise.race<T>([
+      p,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("openai_timeout")), ms))
+    ]);
+  }
 
-  /* surface a clear message to the user */
-  await respond({
-    replace_original: true,
-    response_type: "ephemeral",
-    text:
-      err.message === "openai_timeout"
-        ? "⚠️  OpenAI took longer than 30 s – try again in a moment."
-        : `⚠️  OpenAI error – ${err.message}`
-  });
-  return;                   // stop handler here
+  console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
+  console.time("[LLM] latency");
+  try {
+    const resp = await withTimeout(
+      chat.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "user",
+            content:
+              "Summarise the Slack discussion below in ≤120 words, " +
+              "then list **Action Items** as bullets.\n\n" +
+              sourceText
+          }
+        ],
+        max_tokens: 400,
+        temperature: 0.3
+      })
+    );
+    console.timeEnd("[LLM] latency");
+    return resp.choices[0].message?.content?.trim() ?? "(empty)";
+  } catch (err: any) {
+    console.timeEnd("[LLM] latency");
+    console.error("[ERR] LLM call failed:", err);
+    await respond({
+      replace_original: true,
+      response_type: "ephemeral",
+      text:
+        err.message === "openai_timeout"
+          ? "⚠️  The model took longer than 30 s – try again shortly."
+          : `⚠️  LLM error – ${err.message}`
+    });
+    return undefined;
+  }
 }
 
-}
-
-
-
-/* ── /summarize command -------------------------------------- */
+/* ───────────────  /summarize slash command  ─────────────── */
 app.command("/summarize", async ({ ack, respond, body, client }) => {
-  // 1. quick ACK so Slack never shows the timeout banner
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
   try {
-    // 2. fetch recent messages
-    const oldest = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
-    const hist   = await client.conversations.history({
-      channel: body.channel_id,
-      limit:   100,
-      oldest:  oldest.toString()
-    });
-
-    const text = (hist.messages ?? [])
-      .filter(m => !(m as any).subtype)
-      .map(m => m.text ?? "")
-      .join("\n")
-      .slice(0, 4000);
+    const msgs = await fetchMessages(client, body.channel_id, body.thread_ts);
+    const text = msgs.map(m => m.text ?? "").join("\n").slice(0, 4000); // safe cutoff
 
     if (!text) {
       await respond({ replace_original: true, text: "Nothing to summarise 👌" });
       return;
     }
 
-    // 3. call LLM (await it **inside** the handler)
-    const summary = await generateSummary(text);      //  <-- awaits call
+    const summary = await generateSummary(text, respond);
+    if (!summary) return; // error already handled
 
-    // 4. overwrite the “📝” message
     await respond({
       replace_original: true,
-      response_type: "in_channel",      // or "ephemeral"
+      response_type: "in_channel",
       text: summary,
-      ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
-        thread_ts: body.thread_ts
-      })
+      ...(body.thread_ts && { thread_ts: body.thread_ts })
     });
-
   } catch (err: any) {
     console.error("[ERR] summariser failed:", err);
     await respond({
@@ -200,13 +160,12 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
   }
 });
 
-
-/* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
+/* ──────────── fallback 404 (diagnostics) ─────────────────── */
 receiver.app.use((req, res) => {
   console.log(`[DEBUG] NO MATCH for ${req.method} ${req.originalUrl}`);
   res.status(404).json({ ok: false, route: req.originalUrl });
 });
 
-/* ----------  EXPORT ---------- */
-export const config = { runtime: "nodejs" };
+/* ───────────────────  EXPORTS  ───────────────────────────── */
+export const config = { runtime: "nodejs" };  // Vercel / Netlify edge-hint
 export default receiver.app;
