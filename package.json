@@ -2,12 +2,14 @@
   "name": "slack-digest-bot",
   "version": "0.1.0",
   "type": "module",
-  "dependencies": {
-    "@slack/bolt": "^3.14.0",
-    "openai": "^4.0.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.4.0"
-  },
+"dependencies": {
+  "@slack/bolt": "^4.11.0",
+  "express": "^4.19.0",
+  "openai": "^4.0.0"
+},
+"devDependencies": {
+  "@types/express": "^4.17.21",
+  "typescript": "^5.4.4"
+},
   "engines": { "node": ">=18" }
 }
