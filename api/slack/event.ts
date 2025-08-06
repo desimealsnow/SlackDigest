@@ -1,20 +1,27 @@
 import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
 import { OpenAI } from "openai";
 
-/* ----------  Slack & OpenAI credentials  ---------- */
+/* ----------  ENV ---------- */
 const signingSecret = process.env.SLACK_SIGNING_SECRET!;
 const botToken      = process.env.SLACK_BOT_TOKEN!;
 const openaiKey     = process.env.OPENAI_API_KEY!;
 
-/* ----------  Express receiver (Vercel-friendly)  ---------- */
+/* ----------  RECEIVER ---------- */
 const receiver = new ExpressReceiver({
   signingSecret,
-  endpoints: { commands: "/" },   // POST /  →  /summarize command
+  endpoints: { commands: "/" },      // POST /  ->  slash commands
   processBeforeResponse: true
 });
 
-/* 👉 add a GET handler on the root of the *app* */
+/* ── DEBUG #1: log ANY request that reaches Express ---------- */
+receiver.app.use((req, _res, next) => {
+  console.log(`[DEBUG] Incoming ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+/* ── HEALTH-CHECK on GET / ----------------------------------- */
 receiver.app.get("/", (_req, res) => {
+  console.log("[DEBUG] Health-check handler hit");
   res.status(200).json({
     ok: true,
     message: "Slack Digest Bot is alive ✨",
@@ -22,20 +29,20 @@ receiver.app.get("/", (_req, res) => {
   });
 });
 
-/* ----------  Bolt app  ---------- */
+/* ----------  BOLT APP ---------- */
 const app = new App({
   token: botToken,
   receiver,
-  logLevel: LogLevel.INFO
+  logLevel: LogLevel.DEBUG       // extra Bolt diagnostics
 });
 
-/* ----------  /summarize command  ---------- */
+/* ── /summarize command -------------------------------------- */
 app.command("/summarize", async ({ ack, body, client, respond }) => {
+  console.log("[DEBUG] /summarize invoked");
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
   const oneDayAgo = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
-
-  const history = await client.conversations.history({
+  const history   = await client.conversations.history({
     channel: body.channel_id,
     limit: 100,
     oldest: oneDayAgo.toString()
@@ -55,8 +62,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      {
-        role: "user",
+      { role: "user",
         content:
           "Summarise the Slack discussion below in ≤120 words, then list **Action Items** as bullets.\n\n" +
           text
@@ -73,6 +79,12 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
   });
 });
 
-/* ----------  Vercel export  ---------- */
+/* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
+receiver.app.use((req, res) => {
+  console.log(`[DEBUG] NO MATCH for ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ ok: false, route: req.originalUrl });
+});
+
+/* ----------  EXPORT ---------- */
 export const config = { runtime: "nodejs" };
 export default receiver.app;
