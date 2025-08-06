@@ -14,8 +14,8 @@ const openaiKey     = process.env.OPENAI_API_KEY!;
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET!,
   // POST /api/slack/event  →  slash-command dispatcher
-  endpoints: { commands: "/api/slack/event" }
-//  processBeforeResponse: true
+  endpoints: { commands: "/api/slack/event" },
+  processBeforeResponse: false
 });
 
 /* ── DEBUG #1: log ANY request that reaches Express ---------- */
