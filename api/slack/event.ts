@@ -125,6 +125,7 @@ const { choices } = await withTimeout(
   })
 );
 
+  
 const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
 return summary;
 
