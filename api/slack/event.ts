@@ -13,8 +13,8 @@ const receiver = new ExpressReceiver({
   processBeforeResponse: true
 });
 
-/* 👉  ADD THIS: simple GET handler for the same path */
-receiver.router.get("/", (_req, res) => {
+/* 👉 add a GET handler on the root of the *app* */
+receiver.app.get("/", (_req, res) => {
   res.status(200).json({
     ok: true,
     message: "Slack Digest Bot is alive ✨",
