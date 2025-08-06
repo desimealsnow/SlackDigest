@@ -16,7 +16,6 @@ const receiver = new ExpressReceiver({
 });
 
 
-
 /* ── DEBUG #1: log ANY request that reaches Express ---------- */
 receiver.app.use((req, _res, next) => {
   console.log(`[DEBUG] Incoming ${req.method} ${req.originalUrl}`);
