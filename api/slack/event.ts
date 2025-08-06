@@ -170,10 +170,7 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
       }
 
  /* 2-B call LLM ------------------------------------------- */
-      console.log(
-        `[LLM] provider=${(process.env.MODEL_PROVIDER ?? "openai").toLowerCase()}` +
-        ` model=${process.env.OPENAI_MODEL ?? process.env.GROQ_MODEL ?? "default"}`
-      );
+
       console.time("[LLM] latency");
 
       const summary = await Promise.race([
@@ -188,7 +185,7 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
       /* replace the temp message --------------------------------- */
       await respond({
         replace_original: true,
-        response_type: "in_channel",      // or "ephemeral"
+        response_type: "ephemeral",      // or "ephemeral"
         text: summary,
         ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
           thread_ts: body.thread_ts
