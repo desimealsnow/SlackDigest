@@ -104,7 +104,7 @@ function withTimeout<T>(p: Promise<T>, ms = 30_000) {
     )
   ]);
 }
-
+console.log('Here')
 /* ──────────────────────────────────────────────────────────────── */
 /* LLM call with timeout + safe return                              */
 /* ──────────────────────────────────────────────────────────────── */
@@ -124,9 +124,13 @@ const { choices } = await withTimeout(
     temperature: 0.3
   })
 );
+console.log('Here1')
 
   
 const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+  console.log('Summary' )
+  console.log(summary )
+
 return summary;
 
 }
