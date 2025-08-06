@@ -56,7 +56,13 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     await respond({ response_type: "ephemeral", text: "Nothing to summarise 👌" });
     return;
   }
-
+  const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
+  const threadTs =
+  // if the command was used *inside* an existing thread
+  (body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts))
+    ? body.thread_ts
+    : undefined;
+  
   const openai = new OpenAI({ apiKey: openaiKey });
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -73,8 +79,8 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
 
   await client.chat.postMessage({
     channel: body.channel_id,
-    thread_ts: body.thread_ts ?? body.trigger_id,
-    text: choices[0].message?.content?.trim() ?? "(empty)"
+    text: summaryText,
+    ...(threadTs && { thread_ts: threadTs })   // spread only if defined
   });
 });
 
