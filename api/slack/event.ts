@@ -7,7 +7,11 @@ const botToken      = process.env.SLACK_BOT_TOKEN!;
 const openaiKey     = process.env.OPENAI_API_KEY!;
 
 /* ----------  Express receiver (Vercel-friendly)  ---------- */
-const receiver = new ExpressReceiver({ signingSecret });
+const receiver = new ExpressReceiver({
+  signingSecret,
+  endpoints: { commands: "/" },   
+  processBeforeResponse: true     
+});
 
 /* ----------  Bolt app  ---------- */
 const app = new App({
