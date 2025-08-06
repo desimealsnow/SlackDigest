@@ -60,5 +60,5 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
 });
 
 /* Vercel wrapper */
-export const config = { runtime: "nodejs20.x" };
+export const config = { runtime: "nodejs" };
 export default awsReceiver.toLambda();
