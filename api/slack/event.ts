@@ -93,7 +93,23 @@ async function generateSummary(sourceText: string): Promise<string> {
 
   console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
 
-  const { choices } = await chat.chat.completions.create({
+/* ──────────────────────────────────────────────────────────────── */
+/* helper to time-limit any promise                                 */
+/* ──────────────────────────────────────────────────────────────── */
+function withTimeout<T>(p: Promise<T>, ms = 30_000) {
+  return Promise.race<T>([
+    p,
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("openai_timeout")), ms)
+    )
+  ]);
+}
+
+/* ──────────────────────────────────────────────────────────────── */
+/* LLM call with timeout + safe return                              */
+/* ──────────────────────────────────────────────────────────────── */
+const { choices } = await withTimeout(
+  chat.chat.completions.create({
     model,
     messages: [
       {
@@ -106,10 +122,12 @@ async function generateSummary(sourceText: string): Promise<string> {
     ],
     max_tokens: 400,
     temperature: 0.3
-  });
-  
+  })
+);
 
-  return choices.at(0)?.message?.content?.trim() ?? "(empty)";
+const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+return summary;
+
 }
 
 
