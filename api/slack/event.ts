@@ -139,54 +139,52 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
   
-     const messages = await getRecentMessages(client, body.channel_id);
-    console.log(`[Slack] fetched ${messages.length} messages`);
-
-    if (!messages.length) {
-      await respond({ replace_original: true, text: "Nothing to summarise 👌" });
-      return;
-    }
- 
-  try {
-
-    /* 2️⃣ assemble plain text (truncate to avoid huge prompts) */
-    const text = messages
-      .filter((m) => !(m as any).subtype)
-      .map((m) => m.text ?? "")
-      .join("\n")
-      .slice(0, 4000);
-
-    if (!text) {
-      await respond({
-        response_type: "ephemeral",
-        text: "Nothing to summarise in the last 24 h 👌"
+  /* 2️⃣  Kick off the heavy work **without awaiting it** */
+  (async () => {
+    try {
+      /* fetch recent messages ------------------------------------ */
+      const oldest = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
+      const hist   = await client.conversations.history({
+        channel: body.channel_id,
+        limit:   100,
+        oldest:  oldest.toString()
       });
-      return;
+      const text = (hist.messages ?? [])
+        .filter(m => !(m as any).subtype)
+        .map(m => m.text ?? "")
+        .join("\n")
+        .slice(0, 4000);
+
+      if (!text) {
+        await respond({
+          replace_original: true,
+          response_type: "ephemeral",
+          text: "Nothing to summarise 👌"
+        });
+        return;
+      }
+
+      /* call LLM (OpenAI / Groq) --------------------------------- */
+      const summary = await generateSummary(text);
+
+      /* replace the temp message --------------------------------- */
+      await respond({
+        replace_original: true,
+        response_type: "in_channel",      // or "ephemeral"
+        text: summary,
+        ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
+          thread_ts: body.thread_ts
+        })
+      });
+    } catch (err: any) {
+      console.error("[ERR] summariser failed:", err);
+      await respond({
+        replace_original: true,
+        response_type: "ephemeral",
+        text: `⚠️  Sorry—${err.message ?? err}`
+      });
     }
-
-    /* 3️⃣  call the LLM */
-    const summary = await generateSummary(text);
-
-
-    /* 4️⃣ replace temp message */
-    await respond({
-      replace_original: true,
-      response_type: "in_channel",
-      text: summary,
-      ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
-        thread_ts: body.thread_ts
-      })
-    });
-
-  } catch (err: any) {
-    console.error("[ERR] summariser failed", err);
-
-    // graceful fallback so the user isn’t left hanging
-    await respond({
-      response_type: "ephemeral",
-      text: "⚠️  Sorry—couldn’t generate that summary just now."
-    });
-  }
+  })();  // ← launched & *not awaited*
 });
 
 
