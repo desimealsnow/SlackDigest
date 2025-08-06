@@ -9,8 +9,17 @@ const openaiKey     = process.env.OPENAI_API_KEY!;
 /* ----------  Express receiver (Vercel-friendly)  ---------- */
 const receiver = new ExpressReceiver({
   signingSecret,
-  endpoints: { commands: "/" },   
-  processBeforeResponse: true     
+  endpoints: { commands: "/" },   // POST /  →  /summarize command
+  processBeforeResponse: true
+});
+
+/* 👉  ADD THIS: simple GET handler for the same path */
+receiver.router.get("/", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: "Slack Digest Bot is alive ✨",
+    ts: Date.now()
+  });
 });
 
 /* ----------  Bolt app  ---------- */
@@ -22,7 +31,7 @@ const app = new App({
 
 /* ----------  /summarize command  ---------- */
 app.command("/summarize", async ({ ack, body, client, respond }) => {
-  await ack();
+  await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
   const oneDayAgo = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
 
@@ -65,6 +74,5 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
 });
 
 /* ----------  Vercel export  ---------- */
-/* Vercel detects an exported Express app and handles the request piping for you. */
 export const config = { runtime: "nodejs" };
 export default receiver.app;
