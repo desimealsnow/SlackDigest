@@ -120,6 +120,7 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
   // 1️⃣ quick ack so Slack doesn’t timeout
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
+  
      const messages = await getRecentMessages(client, body.channel_id);
     console.log(`[Slack] fetched ${messages.length} messages`);
 
