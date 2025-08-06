@@ -105,33 +105,48 @@ function withTimeout<T>(p: Promise<T>, ms = 30_000) {
   ]);
 }
 console.log('Here')
+  console.time("[LLM] latency");
+let summary: string;
+
 /* ──────────────────────────────────────────────────────────────── */
 /* LLM call with timeout + safe return                              */
 /* ──────────────────────────────────────────────────────────────── */
-const { choices } = await withTimeout(
-  chat.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "user",
-        content:
-          "Summarise the Slack discussion below in ≤120 words, " +
-          "then list **Action Items** as bullets.\n\n" +
-          sourceText
-      }
-    ],
-    max_tokens: 400,
-    temperature: 0.3
-  })
-);
-console.log('Here1')
+try {
+  const resp = await withTimeout(
+    chat.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Summarise the Slack discussion below in ≤120 words, " +
+            "then list **Action Items** as bullets.\n\n" +
+            sourceText
+        }
+      ],
+      max_tokens: 400,
+      temperature: 0.3
+    })
+  );
 
-  
-const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
-  console.log('Summary' )
-  console.log(summary )
+  console.timeEnd("[LLM] latency");
+  summary = resp.choices[0].message?.content?.trim() ?? "(empty)";
+  return summary;
+} catch (err: any) {
+  console.timeEnd("[LLM] latency");
+  console.error("[ERR] OpenAI call failed:", err);
 
-return summary;
+  /* surface a clear message to the user */
+  await respond({
+    replace_original: true,
+    response_type: "ephemeral",
+    text:
+      err.message === "openai_timeout"
+        ? "⚠️  OpenAI took longer than 30 s – try again in a moment."
+        : `⚠️  OpenAI error – ${err.message}`
+  });
+  return;                   // stop handler here
+}
 
 }
 
