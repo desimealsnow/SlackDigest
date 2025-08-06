@@ -56,12 +56,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     await respond({ response_type: "ephemeral", text: "Nothing to summarise 👌" });
     return;
   }
-  const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
-  const threadTs =
-  // if the command was used *inside* an existing thread
-  (body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts))
-    ? body.thread_ts
-    : undefined;
+
   
   const openai = new OpenAI({ apiKey: openaiKey });
   const { choices } = await openai.chat.completions.create({
@@ -76,7 +71,12 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     max_tokens: 400,
     temperature: 0.3
   });
-
+  const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
+  const threadTs =
+  // if the command was used *inside* an existing thread
+  (body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts))
+    ? body.thread_ts
+    : undefined;
   await client.chat.postMessage({
     channel: body.channel_id,
     text: summaryText,
