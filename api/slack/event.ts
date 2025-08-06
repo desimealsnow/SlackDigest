@@ -92,7 +92,6 @@ async function generateSummary(sourceText: string): Promise<string> {
       : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
   console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
-  console.time("[LLM] latency");
 
   const { choices } = await chat.chat.completions.create({
     model,
@@ -110,7 +109,6 @@ async function generateSummary(sourceText: string): Promise<string> {
   });
   
 
-  console.timeEnd("[LLM] latency");
   return choices.at(0)?.message?.content?.trim() ?? "(empty)";
 }
 
