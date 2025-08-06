@@ -1,7 +1,6 @@
 {
   "name": "slack-digest-bot",
   "version": "0.1.0",
-  "type": "module",
 "dependencies": {
   "@slack/bolt": "^3.14.0",
   "express": "^4.19.0",
