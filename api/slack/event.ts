@@ -130,13 +130,7 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
     }
  
   try {
-    /* ─ Fetch channel history ─────────────────────── */
-    const oldest = Math.floor(Date.now() / 1000) - 60 * 60 * 24; // 24 h
-    const hist   = await client.conversations.history({
-      channel: body.channel_id,
-      limit:   100,
-      oldest:  oldest.toString()
-    });
+
     /* 2️⃣ assemble plain text (truncate to avoid huge prompts) */
     const text = messages
       .filter((m) => !(m as any).subtype)
