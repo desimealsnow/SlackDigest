@@ -1,5 +1,7 @@
 import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
 import { OpenAI } from "openai";
+import pRetry from "p-retry";
+import { WebClient } from "@slack/web-api";
 
 /* ----------  ENV ---------- */
 const signingSecret = process.env.SLACK_SIGNING_SECRET!;
@@ -34,6 +36,40 @@ const app = new App({
   receiver,
   logLevel: LogLevel.DEBUG       // extra Bolt diagnostics
 });
+
+async function getRecentMessages(
+  client: WebClient,
+  channel: string,
+  windowSeconds = 60 * 60 * 24       // 24 h
+) {
+  const oldest = Math.floor(Date.now() / 1000) - windowSeconds;
+
+  return pRetry(
+    async () => {
+      console.time("[Slack] history RTT");
+      const res = await client.conversations.history({
+        channel,
+        limit: 100,
+        oldest: oldest.toString()
+      });
+      console.timeEnd("[Slack] history RTT");
+
+      if (!res.ok) {
+        throw new Error(`history_error:${res.error}`);
+      }
+      return res.messages ?? [];
+    },
+    {
+      retries: 1,                    // total = 2 tries
+      minTimeout: 250,
+      onFailedAttempt: (err) =>
+        console.warn(
+          `[Slack] history attempt ${err.attemptNumber} failed: ${err.message}`
+        )
+    }
+  );
+}
+
 
 async function generateSummary(sourceText: string): Promise<string> {
   /* pick provider + key + model from env ----------------------- */
@@ -84,6 +120,14 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
   // 1️⃣ quick ack so Slack doesn’t timeout
   await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
 
+     const messages = await getRecentMessages(client, body.channel_id);
+    console.log(`[Slack] fetched ${messages.length} messages`);
+
+    if (!messages.length) {
+      await respond({ replace_original: true, text: "Nothing to summarise 👌" });
+      return;
+    }
+ 
   try {
     /* ─ Fetch channel history ─────────────────────── */
     const oldest = Math.floor(Date.now() / 1000) - 60 * 60 * 24; // 24 h
@@ -92,11 +136,12 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
       limit:   100,
       oldest:  oldest.toString()
     });
-    const text = (hist.messages ?? [])
-      .filter(m => !(m as any).subtype)
-      .map(m   => m.text ?? "")
+    /* 2️⃣ assemble plain text (truncate to avoid huge prompts) */
+    const text = messages
+      .filter((m) => !(m as any).subtype)
+      .map((m) => m.text ?? "")
       .join("\n")
-      .slice(0, 4000);                     // keep token count sane
+      .slice(0, 4000);
 
     if (!text) {
       await respond({
@@ -110,16 +155,15 @@ app.command("/summarize", async ({ ack, respond, body, client }) => {
     const summary = await generateSummary(text);
 
 
-
-  await respond({
-    replace_original: true,           // overwrite “Summarising…”
-    response_type: "in_channel",      // or "ephemeral" if you want it private
-    text: summary,
-    ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
-      thread_ts: body.thread_ts       // keep it inside the thread if user was there
-    })
-  });
-
+    /* 4️⃣ replace temp message */
+    await respond({
+      replace_original: true,
+      response_type: "in_channel",
+      text: summary,
+      ...(body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts) && {
+        thread_ts: body.thread_ts
+      })
+    });
 
   } catch (err: any) {
     console.error("[ERR] summariser failed", err);
