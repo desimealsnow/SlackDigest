@@ -73,7 +73,10 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     provider === "groq"
       ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"            // cheap dev model
       : process.env.OPENAI_MODEL ?? "gpt-4o-mini";             // prod default  
-
+  console.log(
+    `[LLM] provider=${provider.toUpperCase()} model=${model}`
+  );
+  console.time("[LLM] latency");   // start timer
   const { choices } = await chat.chat.completions.create({
     model,
     messages: [
@@ -87,6 +90,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     max_tokens: 400,
     temperature: 0.3
   });  
+  console.timeEnd("[LLM] latency"); // prints elapsed ms
   const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
   const threadTs =
   // if the command was used *inside* an existing thread
