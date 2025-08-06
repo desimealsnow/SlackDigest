@@ -8,10 +8,12 @@ const openaiKey     = process.env.OPENAI_API_KEY!;
 
 /* ----------  RECEIVER ---------- */
 const receiver = new ExpressReceiver({
-  signingSecret,
-  endpoints: { commands: "/" },      // POST /  ->  slash commands
+  signingSecret: process.env.SLACK_SIGNING_SECRET!,
+  // POST /api/slack/event  →  slash-command dispatcher
+  endpoints: { commands: "/api/slack/event" },
   processBeforeResponse: true
 });
+
 
 /* ── DEBUG #1: log ANY request that reaches Express ---------- */
 receiver.app.use((req, _res, next) => {
@@ -19,14 +21,10 @@ receiver.app.use((req, _res, next) => {
   next();
 });
 
-/* ── HEALTH-CHECK on GET / ----------------------------------- */
-receiver.app.get("/", (_req, res) => {
-  console.log("[DEBUG] Health-check handler hit");
-  res.status(200).json({
-    ok: true,
-    message: "Slack Digest Bot is alive ✨",
-    ts: Date.now()
-  });
+/* Health-check for GET /api/slack/event */
+receiver.app.get("/api/slack/event", (_req, res) => {
+  console.log("[DEBUG] Health-check hit");
+  res.status(200).json({ ok: true, ts: Date.now() });
 });
 
 /* ----------  BOLT APP ---------- */
