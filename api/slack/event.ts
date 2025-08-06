@@ -95,25 +95,30 @@ async function generateSummary(
   console.log(`[LLM] provider=${provider.toUpperCase()} model=${model}`);
   console.time("[LLM] latency");
   try {
-    const resp = await withTimeout(
-      chat.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "user",
-            content:
-              "Summarise the Slack discussion below in ≤120 words, " +
-              "then list **Action Items** as bullets.\n\n" +
-              sourceText
-          }
-        ],
-        max_tokens: 400,
-        temperature: 0.3
-      })
-    );
-    console.timeEnd("[LLM] latency");
-    return resp.choices[0].message?.content?.trim() ?? "(empty)";
-  } catch (err: any) {
+  const resp = await pRetry(
+    () =>
+      withTimeout(
+        chat.chat.completions.create({
+          model,
+          messages: [
+            {
+              role: "user",
+              content:
+                "Summarise the Slack discussion below in ≤120 words, " +
+                "then list **Action Items** as bullets.\n\n" +
+                sourceText
+            }
+          ],
+          max_tokens: 400,
+          temperature: 0.3
+        }),
+        10_000               // ⏱️ give each attempt 10 s
+      ),
+    { retries: 2 }          // total budget ≈ 30 s
+  );
+  console.timeEnd("[LLM] latency");
+  return resp.choices[0].message?.content?.trim() ?? "(empty)";
+} catch (err: any) {
     console.timeEnd("[LLM] latency");
     console.error("[ERR] LLM call failed:", err);
     await respond({
