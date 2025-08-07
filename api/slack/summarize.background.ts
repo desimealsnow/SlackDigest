@@ -18,6 +18,7 @@ export default async function handler(
     channel: string;
     ts:      string;
     text:    string;
+    user:    string;
   };
 
   /* ②  choose provider / model (unchanged) ------------------- */
