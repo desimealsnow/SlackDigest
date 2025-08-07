@@ -81,7 +81,7 @@ try {
     : `https://${process.env.VERCEL_URL}`;             // vercel dev
 
   /* build request ------------------------------------------- */
-  const url     = `${origin}/api/slack/summarize`;
+  const url     = `${origin}/api/slack/summarize1`;
   const payload = {
     channel: body.channel_id,
     ts:      messageTs,        // “📝 Summarising…” message_ts
