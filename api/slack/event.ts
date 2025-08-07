@@ -69,13 +69,33 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     await respond({ replace_original: true, text: "Nothing to summarise 👌" });
     return;
   }
+function vercelOrigin() {
+  return process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`       // prod / preview
+    : `https://${process.env.VERCEL_URL}`;                 // dev
+}
 
-  await fetch(`https://${process.env.VERCEL_URL}/api/slack/summarize`, {        // .background is implicit
-    method: "POST",
+try {
+  const origin = vercelOrigin();
+  console.log("[DEBUG] firing bg job →", origin + "/api/slack/summarize");
+
+  const bgResp = await fetch(`${origin}/api/slack/summarize`, {
+    method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
+    body:    JSON.stringify({ channel: body.channel_id, ts: messageTs, text })
   });
-});
+
+  console.log("[DEBUG] bg job status", bgResp.status);
+} catch (err) {
+  console.error("[ERR] fetch to background failed:", err);
+  await respond({
+    replace_original: true,
+    response_type:   "ephemeral",
+    text: `⚠️  Couldn’t start background job – ${err}`
+  });
+  return;
+}
+
 
 /* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
 receiver.app.use((req, res) => {
