@@ -46,8 +46,15 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     limit: 100,
     oldest: oneDayAgo.toString()
   });
-
-  const plain = (hist.messages ?? [])
+  if (!history.ok) {
+    await respond({
+      replace_original: true,
+      response_type: "ephemeral",
+      text: `⚠️  Slack error – ${history.error}`
+    });
+    return;
+  }
+  const plain = (history.messages ?? [])
     .filter(m => !(m as any).subtype)
     .map(m => m.text ?? "")
     .join("\n")
