@@ -95,8 +95,7 @@ try {
   });
   return;
 }
-
-
+});
 /* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
 receiver.app.use((req, res) => {
   console.log(`[DEBUG] NO MATCH for ${req.method} ${req.originalUrl}`);
