@@ -83,6 +83,7 @@ try {
   const url     = `${origin}/api/slack/summarize.background`;
   const payload = {
     channel: body.channel_id,
+    user:     body.user_id,
     ts:      messageTs,        // “📝 Summarising…” message_ts
     text:    plain
   };
