@@ -75,7 +75,7 @@ function vercelOrigin() {
 
 try {
   const origin = vercelOrigin();
-  console.log("[DEBUG] firing bg job →", origin + "/api/slack/summarize");
+  console.log("[DEBUG] firing bg job →", origin + "/api/slack/summarize.background");
 
   const bgResp = await fetch(`${origin}/api/slack/summarize`, {
     method:  "POST",
