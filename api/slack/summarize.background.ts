@@ -59,7 +59,7 @@ export default async function handler(
 
   /* ④  update Slack message -------------------------------- */
   const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
-  await slack.chat.update({ channel, ts, text: summary });
+  await slack.chat.postEphemeral({ channel,  user:  userId , text: summary });
 
   /* ⑤  respond 202 so Vercel is happy ----------------------- */
   res.status(202).json({ ok: true });
