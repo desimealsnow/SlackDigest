@@ -38,8 +38,13 @@ const app = new App({
 /* ── /summarize command -------------------------------------- */
 app.command("/summarize", async ({ ack, body, client, respond }) => {
   console.log("[DEBUG] /summarize invoked");
-  await ack({ response_type: "ephemeral", text: "📝 Summarising…" });
-
+  await ack();
+  const tmp = await client.chat.postEphemeral({
+    channel: body.channel_id,
+    user:    body.user_id,                            // ephemeral to requester
+    text:    "📝 Summarising…"
+  });
+  const messageTs = (tmp as any).message_ts ?? tmp.ts;
   const oneDayAgo = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
   const history   = await client.conversations.history({
     channel: body.channel_id,
@@ -68,7 +73,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
   await fetch(`${process.env.VERCEL_URL}/api/slack/summarize`, {        // .background is implicit
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel: body.channel_id, ts, text: plain })
+    body: JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
   });
 });
 
