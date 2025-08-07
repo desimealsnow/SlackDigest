@@ -6,7 +6,6 @@ const signingSecret = process.env.SLACK_SIGNING_SECRET!;
 const botToken      = process.env.SLACK_BOT_TOKEN!;
 const openaiKey     = process.env.OPENAI_API_KEY!;
 
-
 /* ----------  RECEIVER ---------- */
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET!,
