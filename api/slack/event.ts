@@ -82,7 +82,7 @@ try {
   const bgResp = await fetch(`${origin}/api/slack/summarize`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ channel: body.channel_id, ts: messageTs, text })
+    body:    JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
   });
 
   console.log("[DEBUG] bg job status", bgResp.status);
