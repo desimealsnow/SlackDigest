@@ -73,30 +73,56 @@ function vercelOrigin() {
   return  `https://${process.env.VERCEL_URL}`;                
 }
 
+/* -------------------------------------------------------------
+ * FIRE BACKGROUND FUNCTION  (extra debugging)
+ * ----------------------------------------------------------- */
 try {
-  const origin = vercelOrigin();
-  console.log("[DEBUG] firing bg job →", origin + "/api/slack/summarize");
+  const origin   = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`   // preview / prod
+    : `https://${process.env.VERCEL_URL}`;             // vercel dev
 
-  const bgResp = await fetch(`${origin}/api/slack/summarize`, {
+  /* build request ------------------------------------------- */
+  const url     = `${origin}/api/slack/summarize`;
+  const payload = {
+    channel: body.channel_id,
+    ts:      messageTs,        // “📝 Summarising…” message_ts
+    text:    plain
+  };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    headers["x-vercel-protection-bypass"] =
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  }
+
+  /* log everything we’re about to send ---------------------- */
+  console.log("[BG] URL      →", url);
+  console.log("[BG] Headers  →", headers);
+  console.log("[BG] Payload  →", JSON.stringify(payload).slice(0, 200) + "...");
+
+  /* fire & await the response ------------------------------- */
+  const bgResp = await fetch(url, {
     method:  "POST",
-    headers: {
-    "Content-Type": "application/json",
-    "x-vercel-protection-bypass":
-      process.env.VERCEL_AUTOMATION_BYPASS_SECRET!
-    },
-    body:    JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
+    headers,
+    body:    JSON.stringify(payload)
   });
 
-  console.log("[DEBUG] bg job status", bgResp.status);
+  /* log response status + any body text --------------------- */
+  console.log("[BG] status   ←", bgResp.status);
+  const dbgText = await bgResp.text().catch(() => "(no body)");
+  console.log("[BG] body     ←", dbgText.slice(0, 200) + "...");
+
 } catch (err) {
-  console.error("[ERR] fetch to background failed:", err);
+  console.error("[BG] fetch failed:", err);
   await respond({
     replace_original: true,
-    response_type:   "ephemeral",
+    response_type: "ephemeral",
     text: `⚠️  Couldn’t start background job – ${err}`
   });
   return;
 }
+
 });
 /* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
 receiver.app.use((req, res) => {
