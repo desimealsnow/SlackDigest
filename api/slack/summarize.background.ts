@@ -14,9 +14,8 @@ export default async function handler(
   }
 
   /* ①  parse JSON body (Vercel automatically parsed it for us) */
-  const { channel, ts, text } = req.body as {
+  const { channel, user, text } = req.body as {
     channel: string;
-    ts:      string;
     text:    string;
     user:    string;
   };
