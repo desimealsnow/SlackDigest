@@ -70,7 +70,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     return;
   }
 
-  await fetch(`${process.env.VERCEL_URL}/api/slack/summarize`, {        // .background is implicit
+  await fetch(`https://${process.env.VERCEL_URL}/api/slack/summarize`, {        // .background is implicit
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
