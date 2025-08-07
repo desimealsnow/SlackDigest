@@ -34,29 +34,23 @@ const app = new App({
 });
 
 /* ── /summarize command -------------------------------------- */
-app.command("/summarize", async ({ ack, body, client, respond }) => {
+app.command("/summarize", async ({ ack, body, client }) => {
   console.log("[DEBUG] /summarize invoked");
-  await ack();
-  const tmp = await client.chat.postEphemeral({
-    channel: body.channel_id,
-    user:    body.user_id,                            // ephemeral to requester
-    text:    "📝 Summarising…"
-  });
-  const messageTs = (tmp as any).message_ts ?? tmp.ts;
+
+  /* ①  ACK immediately *with* the placeholder text ------------- */
+  await ack({
+    response_type: "ephemeral",        // only the requester sees it
+    text: "📝 Summarising…"
+  });                                  // < 30 ms → Slack is happy
+
+  /* ②  Gather messages (same as before) ------------------------ */
   const oneDayAgo = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
   const history   = await client.conversations.history({
     channel: body.channel_id,
-    limit: 100,
-    oldest: oneDayAgo.toString()
+    limit:   100,
+    oldest:  oneDayAgo.toString()
   });
-  if (!history.ok) {
-    await respond({
-      replace_original: true,
-      response_type: "ephemeral",
-      text: `⚠️  Slack error – ${history.error}`
-    });
-    return;
-  }
+
   const plain = (history.messages ?? [])
     .filter(m => !(m as any).subtype)
     .map(m => m.text ?? "")
@@ -64,30 +58,18 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     .slice(0, 4000);
 
   if (!plain) {
-    await respond({ replace_original: true, text: "Nothing to summarise 👌" });
+    /* overwrite the placeholder with a quick reply ------------- */
+    await client.chat.postEphemeral({
+      channel: body.channel_id,
+      user:    body.user_id,
+      text:    "Nothing to summarise 👌"
+    });
     return;
   }
-function vercelOrigin() {
-  return  `https://${process.env.VERCEL_URL}`;                
-}
 
-/* -------------------------------------------------------------
- * FIRE BACKGROUND FUNCTION  (extra debugging)
- * ----------------------------------------------------------- */
-try {
-  const origin   = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`   // preview / prod
-    : `https://${process.env.VERCEL_URL}`;             // vercel dev
-
-  /* build request ------------------------------------------- */
-  const url     = `${origin}/api/slack/summarize.background`;
-  const payload = {
-    channel: body.channel_id,
-    user:     body.user_id,
-    ts:      messageTs,        // “📝 Summarising…” message_ts
-    text:    plain
-  };
-  const headers: Record<string, string> = {
+  /* ③  Fire the background worker ----------------------------- */
+  const origin  = `https://${process.env.VERCEL_URL}`;
+  const headers: Record<string,string> = {
     "Content-Type": "application/json"
   };
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
@@ -95,34 +77,17 @@ try {
       process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
   }
 
-  /* log everything we’re about to send ---------------------- */
-  console.log("[BG] URL      →", url);
-  console.log("[BG] Headers  →", headers);
-  console.log("[BG] Payload  →", JSON.stringify(payload).slice(0, 200) + "...");
-
-  /* fire & await the response ------------------------------- */
-  const bgResp = await fetch(url, {
-    method:  "POST",
+  await fetch(`${origin}/api/slack/summarize.background`, {
+    method: "POST",
     headers,
-    body:    JSON.stringify(payload)
+    body: JSON.stringify({
+      channel: body.channel_id,
+      user:    body.user_id,   // needed for chat.postEphemeral later
+      text:    plain
+    })
   });
-
-  /* log response status + any body text --------------------- */
-  console.log("[BG] status   ←", bgResp.status);
-  const dbgText = await bgResp.text().catch(() => "(no body)");
-  console.log("[BG] body     ←", dbgText.slice(0, 200) + "...");
-
-} catch (err) {
-  console.error("[BG] fetch failed:", err);
-  await respond({
-    replace_original: true,
-    response_type: "ephemeral",
-    text: `⚠️  Couldn’t start background job – ${err}`
-  });
-  return;
-}
-
 });
+
 /* ── DEBUG #2: catch-all 404 so we SEE what went unmatched ---- */
 receiver.app.use((req, res) => {
   console.log(`[DEBUG] NO MATCH for ${req.method} ${req.originalUrl}`);
