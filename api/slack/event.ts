@@ -70,9 +70,7 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     return;
   }
 function vercelOrigin() {
-  return process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`       // prod / preview
-    : `https://${process.env.VERCEL_URL}`;                 // dev
+  return  `https://slack-digest-1.vercel.app`;                
 }
 
 try {
