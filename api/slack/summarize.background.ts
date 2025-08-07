@@ -1,34 +1,83 @@
+// /api/summarize.background.ts
 import { WebClient } from "@slack/web-api";
-import { OpenAI }   from "openai";
+import { OpenAI }    from "openai";
 
-export const runtime = "nodejs";          // (optional) explicit
+/* ——— helper: 30-second hard timeout ——— */
+function withTimeout<T>(p: Promise<T>, ms = 30_000) {
+  return Promise.race<T>([
+    p,
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("openai_timeout")), ms)
+    )
+  ]);
+}
 
+/* ——— background handler (15-min budget) ——— */
 export default async function handler(req: Request) {
-  const { channel, ts, text } = await req.json();   // payload from slash cmd
+  if (req.method !== "POST")
+    return new Response("Use POST", { status: 405 });
 
-  /* ---------- OpenAI call (15-min budget) ---------- */
-  const chat   = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const { choices } = await chat.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    messages: [
-      { role: "user",
-        content:
-          "Summarise the Slack discussion below in ≤120 words, " +
-          "then list **Action Items** as bullets.\n\n" + text }
-    ],
-    max_tokens: 400,
-    temperature: 0.3
-  });
+  const { channel, ts, text } = await req.json();
 
-  const summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+  /* 1️⃣  choose provider, key, model */
+  const provider = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
 
-  /* ---------- update the temp message in Slack ---------- */
+  const chat = new OpenAI(
+    provider === "groq"
+      ? {
+          apiKey:  process.env.GROQ_API_KEY!,
+          baseURL: "https://api.groq.com/openai/v1"
+        }
+      : {
+          apiKey: process.env.OPENAI_API_KEY!
+        }
+  );
+
+  const model =
+    provider === "groq"
+      ? process.env.GROQ_MODEL   ?? "llama3-8b-8192"
+      : process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
+  console.log(`[LLM] provider=${provider} model=${model}`);
+
+  /* 2️⃣  call the LLM (with timeout) */
+  let summary: string;
+  try {
+    const { choices } = await withTimeout(
+      chat.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "user",
+            content:
+              "Summarise the Slack discussion below in ≤120 words, " +
+              "then list **Action Items** as bullets.\n\n" + text
+          }
+        ],
+        max_tokens: 400,
+        temperature: 0.3
+      })
+    );
+    summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+  } catch (err: any) {
+    summary =
+      err.message === "openai_timeout"
+        ? "⚠️  OpenAI took longer than 30 s – try again later."
+        : `⚠️  OpenAI error – ${err.message ?? err}`;
+    console.error("[ERR] summariser failed:", err);
+  }
+
+  /* 3️⃣  update the original Slack message */
   const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
   await slack.chat.update({
     channel,
-    ts,                     // message timestamp we stored earlier
+    ts,            // timestamp of the “📝 Summarising…” message
     text: summary
   });
 
-  return new Response("ok");   // ignored by caller, but good practice
+  /* 4️⃣  background functions must return a Response */
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 202,
+    headers: { "Content-Type": "application/json" }
+  });
 }
