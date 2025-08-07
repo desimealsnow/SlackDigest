@@ -58,7 +58,9 @@ export default async function handler(req: Request) {
         temperature: 0.3
       })
     );
-    summary = choices.at(0)?.message?.content?.trim() ?? "(empty)";
+    summary = choices.length
+  ? choices[0].message?.content?.trim() ?? "(empty)"
+  : "(empty)";
   } catch (err: any) {
     summary =
       err.message === "openai_timeout"
