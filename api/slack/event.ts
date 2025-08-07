@@ -1,6 +1,7 @@
 import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
 import { OpenAI } from "openai";
 
+
 /* ----------  ENV ---------- */
 const signingSecret = process.env.SLACK_SIGNING_SECRET!;
 const botToken      = process.env.SLACK_BOT_TOKEN!;
