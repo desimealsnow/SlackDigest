@@ -79,7 +79,11 @@ try {
 
   const bgResp = await fetch(`${origin}/api/slack/summarize`, {
     method:  "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+    "Content-Type": "application/json",
+    "x-vercel-protection-bypass":
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET!
+    },
     body:    JSON.stringify({ channel: body.channel_id, ts: messageTs, text: plain })
   });
 
