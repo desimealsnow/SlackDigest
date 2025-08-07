@@ -47,56 +47,21 @@ app.command("/summarize", async ({ ack, body, client, respond }) => {
     oldest: oneDayAgo.toString()
   });
 
-  const text = (history.messages ?? [])
+  const plain = (hist.messages ?? [])
     .filter(m => !(m as any).subtype)
     .map(m => m.text ?? "")
-    .join("\n");
+    .join("\n")
+    .slice(0, 4000);
 
-  if (!text) {
-    await respond({ response_type: "ephemeral", text: "Nothing to summarise 👌" });
+  if (!plain) {
+    await respond({ replace_original: true, text: "Nothing to summarise 👌" });
     return;
   }
 
-  const provider   = (process.env.MODEL_PROVIDER ?? "openai").toLowerCase();
-  const chat = new OpenAI(
-    provider === "groq"
-      ? {
-          apiKey: process.env.GROQ_API_KEY!,                   // GROQ_API_KEY in Vercel
-          baseURL: "https://api.groq.com/openai/v1"            // Groq’s OpenAI-compatible endpoint
-        }
-      : {
-          apiKey: process.env.OPENAI_API_KEY!,                 // OPENAI_API_KEY in Vercel
-          /* baseURL defaults to api.openai.com */
-        }
-  );
-  const model =
-    provider === "groq"
-      ? process.env.GROQ_MODEL  ?? "llama3-8b-8192"            // cheap dev model
-      : process.env.OPENAI_MODEL ?? "gpt-4o-mini";             // prod default  
-
-  const { choices } = await chat.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "user",
-        content:
-          "Summarise the Slack discussion below in ≤120 words, then list **Action Items** as bullets.\n\n" +
-          text
-      }
-    ],
-    max_tokens: 400,
-    temperature: 0.3
-  });  
-  const summaryText = choices[0].message?.content?.trim() ?? "(empty)";
-  const threadTs =
-  // if the command was used *inside* an existing thread
-  (body.thread_ts && /^\d+\.\d+$/.test(body.thread_ts))
-    ? body.thread_ts
-    : undefined;
-  await client.chat.postMessage({
-    channel: body.channel_id,
-    text: summaryText,
-    ...(threadTs && { thread_ts: threadTs })   // spread only if defined
+  await fetch(`${process.env.VERCEL_URL}/api/slack/summarize`, {        // .background is implicit
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: body.channel_id, ts, text: plain })
   });
 });
 
